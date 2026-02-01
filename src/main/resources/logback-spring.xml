@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+  <springProfile name="worker">
+    <property name="WORKER_LOG_FILE" value="logs/worker.log" />
+
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+      <file>${WORKER_LOG_FILE}</file>
+      <append>false</append>
+      <encoder>
+        <pattern>%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level --- [%thread] %logger{36} : %msg%n</pattern>
+      </encoder>
+    </appender>
+
+    <logger name="io.github.rohandahal.orchestrator" level="INFO" />
+    <logger name="org.springframework" level="ERROR" />
+    <logger name="org.hibernate" level="ERROR" />
+    <logger name="com.zaxxer.hikari" level="ERROR" />
+    <logger name="org.flywaydb" level="ERROR" />
+    <logger name="org.postgresql" level="ERROR" />
+
+    <root level="INFO">
+      <appender-ref ref="FILE" />
+    </root>
+  </springProfile>
+</configuration>
