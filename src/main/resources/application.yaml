@@ -1,0 +1,32 @@
+spring:
+  application:
+    name: workflow-orchestrator
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/orchestrator
+    username: orchestrator
+    password: orchestrator
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
