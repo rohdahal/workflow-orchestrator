@@ -4,6 +4,8 @@ import io.github.rohandahal.orchestrator.service.DagReportService;
 import io.github.rohandahal.orchestrator.service.DagRunService;
 import io.github.rohandahal.orchestrator.service.TaskRunService;
 import io.github.rohandahal.orchestrator.executor.IngestTlcMonthExecutor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -18,6 +20,8 @@ import java.util.Map;
 @Profile("worker")
 @Component
 public class TaskWorker {
+
+  private static final Logger log = LoggerFactory.getLogger(TaskWorker.class);
 
   private final JdbcTemplate jdbc;
   private final TaskRunService taskRunService;
@@ -49,12 +53,15 @@ public class TaskWorker {
       return;
     }
 
+    log.info("Claimed task_run id={} dag_run_id={} task_id={}", claimed.taskRunId(), claimed.dagRunId(), claimed.taskId());
     try {
       executeTask(claimed.dagRunId(), claimed.taskId());
       TaskRunService.TaskRunResult finished = taskRunService.finish(claimed.taskRunId(), "success", null);
+      log.info("Finished task_run id={} status=success", claimed.taskRunId());
 
       if (dagRunService.isDagRunSuccessful(finished.dagRunId())) {
         dagReportService.uploadIfDagSucceeded(finished.dagRunId());
+        log.info("Dag run id={} is successful; report upload attempted", finished.dagRunId());
       }
 
     } catch (Exception e) {
@@ -65,6 +72,7 @@ public class TaskWorker {
       }
 
       dagRunService.markDagFailed(claimed.dagRunId());
+      log.error("Task run id={} failed: {}", claimed.taskRunId(), e.getMessage(), e);
     }
   }
 
