@@ -1,3 +1,7 @@
+.env
+.env.local
+.env.*.local
+!.env.example
 HELP.md
 target/
 .mvn/wrapper/maven-wrapper.jar
@@ -31,3 +35,23 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### OS / temp ###
+.DS_Store
+*.swp
+*.swo
+*.tmp
+*.temp
+
+### Logs / reports ###
+*.log
+*.out
+*.pid
+*.pdf
+
+### Spark / local runtime artifacts ###
+spark-warehouse/
+metastore_db/
+derby.log
+spark-jobs/*.jar
+spark-jobs/*.jar.original

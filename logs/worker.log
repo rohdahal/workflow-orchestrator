@@ -1,6 +1,0 @@
-2026-02-01T16:48:41.646-06:00 INFO  --- [main] i.g.r.o.WorkflowOrchestratorApplication : Starting WorkflowOrchestratorApplication using Java 17.0.17 with PID 73885 (/Users/rohandahal/Downloads/workflow-orchestrator/target/classes started by rohandahal in /Users/rohandahal/Downloads/workflow-orchestrator)
-2026-02-01T16:48:41.647-06:00 INFO  --- [main] i.g.r.o.WorkflowOrchestratorApplication : The following 1 profile is active: "worker"
-2026-02-01T16:48:43.003-06:00 INFO  --- [main] i.g.r.o.WorkflowOrchestratorApplication : Started WorkflowOrchestratorApplication in 1.556 seconds (process running for 1.706)
-2026-02-01T16:49:09.652-06:00 INFO  --- [main] i.g.r.orchestrator.worker.TaskWorker : Claimed task_run id=9
-2026-02-01T16:49:09.656-06:00 INFO  --- [main] i.g.r.orchestrator.worker.TaskWorker : Executing task_run id=9 dag_id=sample_dag run_id=sample_dag:2026-02-01:34bf6299-501f-4b73-a349-a935eca7cbe2 task_id=tip_behavior attempt=1
-2026-02-01T16:49:09.920-06:00 INFO  --- [main] i.g.r.orchestrator.worker.TaskWorker : Finished task_run id=9 status=success

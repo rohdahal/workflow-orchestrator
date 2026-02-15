@@ -94,7 +94,7 @@ docker exec -it orch-postgres psql -U orchestrator -d orchestrator -c "select no
 Health check:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8080/actuator/health
 ```
 
 ---
@@ -114,7 +114,7 @@ SPRING_PROFILES_ACTIVE=worker ./mvnw spring-boot:run
 Create a DAG run:
 
 ```bash
-curl -X POST "http://localhost:8080/api/dags/daily_tip_insights/runs?date=2024-01-15"
+curl -X POST "http://localhost:8080/api/dags/daily_tip_insights/yellow/runs?startDate=2024-01-01&endDate=2024-01-31"
 ```
 
 Inspect task state:

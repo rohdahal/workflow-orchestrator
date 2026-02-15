@@ -13,6 +13,12 @@ create table if not exists dag_run (
   dag_id text not null,
   run_id text not null,
   run_date date not null,
+
+  -- Execution parameters
+  dataset text not null,
+  start_date date not null,
+  end_date date not null,
+
   status text not null,
   started_at timestamptz,
   finished_at timestamptz,
@@ -42,5 +48,6 @@ create table if not exists task_run (
   unique (dag_run_id, task_id, attempt)
 );
 
-create index if not exists idx_dag_run_status on dag_run(status);
-create index if not exists idx_task_run_status on task_run(status);
+create index if not exists idx_dag_run_status_created_at on dag_run(status, created_at);
+create index if not exists idx_dag_run_request_window on dag_run(dag_id, dataset, start_date, end_date);
+create index if not exists idx_task_run_status_created_at on task_run(status, created_at);
