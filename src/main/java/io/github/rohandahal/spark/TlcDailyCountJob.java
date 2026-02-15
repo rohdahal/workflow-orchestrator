@@ -12,6 +12,7 @@ import java.sql.PreparedStatement;
 import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 
 import static org.apache.spark.sql.functions.*;
 
@@ -68,7 +69,7 @@ public final class TlcDailyCountJob {
       deleteExistingMonthRows(jdbcUrl, jdbcUser, jdbcPassword, dataset, start, end);
 
       // JDBC properties for Postgres.
-      Map<String, String> jdbcProps = new HashMap<>();
+      Properties jdbcProps = new Properties();
       jdbcProps.put("user", jdbcUser);
       jdbcProps.put("password", jdbcPassword);
       jdbcProps.put("driver", "org.postgresql.Driver");

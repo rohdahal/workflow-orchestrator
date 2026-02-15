@@ -30,10 +30,6 @@ public class DagRunController {
     this.dagRunService = dagRunService;
   }
 
-  private static final java.util.Set<String> SUPPORTED_DATASETS = java.util.Set.of(
-      "yellow", "green", "fhv", "hvfhv"
-  );
-
   @PostMapping("/{dagId}/{dataset}/runs")
   public ResponseEntity<CreateRunResult> createRun(
       @PathVariable String dagId,
@@ -41,13 +37,16 @@ public class DagRunController {
       @RequestParam("startDate") LocalDate startDate,
       @RequestParam("endDate") LocalDate endDate
   ) {
-      if (!SUPPORTED_DATASETS.contains(dataset)) {
-          throw new IllegalArgumentException("Unsupported dataset: " + dataset);
-      }
-      if (startDate.isAfter(endDate)) {
-          throw new IllegalArgumentException("startDate must be on or before endDate");
-      }
+    if (!DagRunService.SUPPORTED_DAGS.contains(dagId)) {
+      throw new IllegalArgumentException("Unsupported dagId: " + dagId);
+    }
+    if (!DagRunService.SUPPORTED_DATASETS.contains(dataset)) {
+      throw new IllegalArgumentException("Unsupported dataset: " + dataset);
+    }
+    if (startDate.isAfter(endDate)) {
+      throw new IllegalArgumentException("startDate must be on or before endDate");
+    }
 
-      return ResponseEntity.ok(dagRunService.createDagRun(dagId, dataset, startDate, endDate));
+    return ResponseEntity.ok(dagRunService.createDagRun(dagId, dataset, startDate, endDate));
   }
 }

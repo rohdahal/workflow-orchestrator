@@ -1,7 +1,9 @@
 package io.github.rohandahal.orchestrator.worker;
 
+import io.github.rohandahal.orchestrator.service.DagReportService;
 import io.github.rohandahal.orchestrator.service.DagRunService;
 import io.github.rohandahal.orchestrator.service.TaskRunService;
+import io.github.rohandahal.orchestrator.executor.IngestTlcMonthExecutor;
 import org.springframework.context.annotation.Profile;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -20,11 +22,21 @@ public class TaskWorker {
   private final JdbcTemplate jdbc;
   private final TaskRunService taskRunService;
   private final DagRunService dagRunService;
+  private final DagReportService dagReportService;
+  private final IngestTlcMonthExecutor ingestTlcMonthExecutor;
 
-  public TaskWorker(JdbcTemplate jdbc, TaskRunService taskRunService, DagRunService dagRunService) {
+  public TaskWorker(
+      JdbcTemplate jdbc,
+      TaskRunService taskRunService,
+      DagRunService dagRunService,
+      DagReportService dagReportService,
+      IngestTlcMonthExecutor ingestTlcMonthExecutor
+  ) {
     this.jdbc = jdbc;
     this.taskRunService = taskRunService;
     this.dagRunService = dagRunService;
+    this.dagReportService = dagReportService;
+    this.ingestTlcMonthExecutor = ingestTlcMonthExecutor;
   }
 
   /**
@@ -32,67 +44,85 @@ public class TaskWorker {
    */
   @Scheduled(fixedDelay = 5000)
   public void pollAndExecute() {
-    // 1) Fetch the next queued task_run id, if any.
-    Long taskRunId = findNextQueuedTaskRunId();
-    if (taskRunId == null) {
+    ClaimedTaskRun claimed = claimNextQueuedTaskRun();
+    if (claimed == null) {
       return;
     }
-
-    TaskRunService.TaskRunResult started = null;
 
     try {
-      // 2) Transition queued -> running using the service state machine.
-      started = taskRunService.start(taskRunId);
+      executeTask(claimed.dagRunId(), claimed.taskId());
+      TaskRunService.TaskRunResult finished = taskRunService.finish(claimed.taskRunId(), "success", null);
 
-      // 3) Execute the task workload.
-      executeTask(started.dagRunId());
-
-      // 4) Transition running -> success.
-      taskRunService.finish(taskRunId, "success", null);
+      if (dagRunService.isDagRunSuccessful(finished.dagRunId())) {
+        dagReportService.uploadIfDagSucceeded(finished.dagRunId());
+      }
 
     } catch (Exception e) {
-      // 5) Transition running -> failed (best-effort) and capture the error.
       try {
-        taskRunService.finish(taskRunId, "failed", e.getMessage());
+        taskRunService.finish(claimed.taskRunId(), "failed", e.getMessage());
       } catch (Exception ignore) {
-        // ignore to avoid masking the original error
+        // // ignore to avoid masking the original error
       }
 
-      if (started != null) {
-        dagRunService.markDagFailed(started.dagRunId());
-      }
+      dagRunService.markDagFailed(claimed.dagRunId());
     }
   }
 
-  
-  private void executeTask(long dagRunId) {
-    // Load execution parameters (dataset + range + monthly anchor).
+  private void executeTask(long dagRunId, String taskId) {
     DagRunService.DagRunContext ctx = dagRunService.getDagRunContext(dagRunId);
+    String yearMonth = ctx.runDate().toString().substring(0, 7);
 
-    // Check whether aggregated data needed for reporting is already present.
-    boolean ready = dagRunService.isDailyCountsAvailable(ctx.dataset(), ctx.startDate(), ctx.endDate());
-    if (ready) {
-      return;
+    switch (taskId) {
+      case "tip_behavior" -> {
+        ingestTlcMonthExecutor.ingest(ctx.dataset(), yearMonth, false);
+        dagRunService.ensureDailyCountsAvailable(ctx);
+      }
+      case "revenue_rollup" -> {
+        ingestTlcMonthExecutor.ingest(ctx.dataset(), yearMonth, false);
+        dagRunService.ensureDailyCountsAvailable(ctx);
+      }
+      case "driver_activity" -> {
+        ingestTlcMonthExecutor.ingest(ctx.dataset(), yearMonth, false);
+        dagRunService.ensureDailyCountsAvailable(ctx);
+      }
+      default -> throw new IllegalArgumentException("Unsupported taskId: " + taskId);
     }
-
-    // Trigger a Spark job to materialize daily aggregates for this monthly anchor.
-    dagRunService.loadDailyCountsWithSpark(ctx);
   }
 
-  // DB poll helper: select the next queued task_run id.
-  private Long findNextQueuedTaskRunId() {
+  private record ClaimedTaskRun(long taskRunId, long dagRunId, String taskId) {}
+
+  private ClaimedTaskRun claimNextQueuedTaskRun() {
     List<Map<String, Object>> rows = jdbc.queryForList("""
-        select id
-        from task_run
-        where status = 'queued'
-        order by id asc
-        limit 1
+        with next_task as (
+          select id
+          from task_run
+          where status = 'queued'
+          order by id asc
+          for update skip locked
+          limit 1
+        )
+        update task_run tr
+        set status = 'running',
+            started_at = now()
+        from next_task nt
+        where tr.id = nt.id
+        returning tr.id, tr.dag_run_id, tr.task_id
         """);
 
     if (rows.isEmpty()) {
       return null;
     }
 
-    return ((Number) rows.get(0).get("id")).longValue();
+    long taskRunId = ((Number) rows.get(0).get("id")).longValue();
+    long dagRunId = ((Number) rows.get(0).get("dag_run_id")).longValue();
+    String taskId = (String) rows.get(0).get("task_id");
+
+    jdbc.update("""
+        update dag_run
+        set status = ?, started_at = coalesce(started_at, now())
+        where id = ? and status = ?
+        """, "running", dagRunId, "queued");
+
+    return new ClaimedTaskRun(taskRunId, dagRunId, taskId);
   }
 }
