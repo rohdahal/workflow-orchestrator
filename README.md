@@ -1,148 +1,131 @@
 # Workflow Orchestrator
 
-A self-hosted workflow orchestrator for deadline-driven batch pipelines, inspired by real-world enterprise data platforms.
+Spring Boot + Postgres + Spark workflow orchestrator for NYC TLC batch pipelines.
 
-This project focuses on **orchestration mechanics** (runs, tasks, retries, audit) rather than business-specific logic. Public datasets and local infrastructure are used to simulate production-grade workflows without external dependencies.
+## Supported DAGs
 
----
+- `daily_tip_insights`
+- `monthly_revenue_rollup`
+- `driver_activity_summary`
+- `all` (runs all three and produces a 3-section PDF report)
 
-## Current Status
+## Supported datasets
 
-🚧 **Work in progress**
+- `yellow`
+- `green`
+- `fhv`
+- `hvfhv`
 
-Working today:
-- Local infrastructure via Docker Compose
-- PostgreSQL-backed metadata store (DAGs, runs, tasks)
-- A DB-backed worker loop that claims queued tasks using `FOR UPDATE SKIP LOCKED`
-- REST API to create DAG runs
+## Architecture flow
 
-Next up:
-- Real task execution (NYC TLC tip behavior)
-- Retries, backoff, and dead-letter handling
-- Results tables + reporting endpoints
+1. API creates a `dag_run` and queued `task_run` rows in Postgres.
+2. Worker (`SPRING_PROFILES_ACTIVE=worker`) claims queued tasks.
+3. Worker executes Spark/SQL task logic for the selected DAG + dataset/date range.
+4. Task results update `task_run`; DAG status is recomputed in `dag_run`.
+5. On DAG success, report generation creates a PDF and uploads to S3.
+6. Report metadata and upload result are persisted in `dag_report`.
 
----
-
-## Architecture
-
-### Components
-
-- **Spring Boot (Java 17)**
-  - Orchestrator control plane
-  - Creates runs and records task state transitions
-
-- **PostgreSQL 16**
-  - Durable store for:
-    - workflow metadata
-    - dag runs
-    - task runs
-    - execution history / audit
-  - Also used as a simple queue for the worker (single-node friendly)
-
-- **Docker Compose**
-  - Brings up Postgres locally
-  - Zero cloud dependencies
-  - Reproducible environment
-
----
-
-## Local Setup
-
-### Prerequisites
+## Prerequisites
 
 - Java 17+
 - Docker + Docker Compose
+- AWS credentials with S3 read/write access
 
----
+## Environment
 
-### Start Infrastructure
+Create `.env` in project root:
 
-From the project root:
+You may Use `.env.example` as reference for required keys.
+
+```env
+AWS_REGION=YOUR_REGION
+AWS_ACCESS_KEY_ID=YOUR_KEY
+AWS_SECRET_ACCESS_KEY=YOUR_SECRET
+
+ORCH_S3_BUCKET=your-bucket
+ORCH_S3_PREFIX=workflow-orchestrator
+```
+
+Notes:
+- Reports upload to `s3://$ORCH_S3_BUCKET/$ORCH_S3_PREFIX/reports/`
+- Spark + worker also read this `.env`
+
+Minimum IAM permissions for your AWS principal:
+- `s3:ListBucket` on the target bucket
+- `s3:GetObject` on `s3://$ORCH_S3_BUCKET/$ORCH_S3_PREFIX/*`
+- `s3:PutObject` on `s3://$ORCH_S3_BUCKET/$ORCH_S3_PREFIX/*`
+
+## Run locally
+
+1. Start infra:
 
 ```bash
 docker compose up -d
-docker compose ps
 ```
 
-Expected services:
-- `orch-postgres` on port `5432`
-
----
-
-### Verify Postgres
-
-```bash
-docker exec -it orch-postgres psql -U orchestrator -d orchestrator -c "select now();"
-```
-
----
-
-### Build
-
-```bash
-./mvnw clean package
-```
-
----
-
-### Run the API
+2. Start API (terminal A):
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-Health check:
-
-```bash
-curl http://localhost:8080/actuator/health
-```
-
----
-
-### Run the Worker
-
-The worker runs in a separate process and does **not** start a web server.
+3. Start worker (terminal B):
 
 ```bash
 SPRING_PROFILES_ACTIVE=worker ./mvnw spring-boot:run
 ```
 
----
-
-## Quick Demo
-
-Create a DAG run:
+## Trigger DAG runs (February 2025)
 
 ```bash
-curl -X POST "http://localhost:8080/api/dags/daily_tip_insights/yellow/runs?startDate=2024-01-01&endDate=2024-01-31"
+curl -sS -X POST "http://localhost:8080/api/dags/daily_tip_insights/yellow/runs?startDate=2025-02-01&endDate=2025-02-28"
+
+curl -sS -X POST "http://localhost:8080/api/dags/monthly_revenue_rollup/yellow/runs?startDate=2025-02-01&endDate=2025-02-28"
+
+curl -sS -X POST "http://localhost:8080/api/dags/driver_activity_summary/yellow/runs?startDate=2025-02-01&endDate=2025-02-28"
+
+curl -sS -X POST "http://localhost:8080/api/dags/all/yellow/runs?startDate=2025-02-01&endDate=2025-02-28"
 ```
 
-Inspect task state:
+## Track execution
 
 ```bash
-docker exec -it orch-postgres psql -U orchestrator -d orchestrator -c "select id, dag_run_id, task_id, status, started_at, finished_at from task_run order by id desc limit 5;"
+docker exec -i orch-postgres psql -U orchestrator -d orchestrator -c "select id,dag_id,dataset,status,started_at,finished_at from dag_run order by id desc limit 10;"
+
+docker exec -i orch-postgres psql -U orchestrator -d orchestrator -c "select id,dag_run_id,task_id,status,error from task_run order by id desc limit 20;"
+
+docker exec -i orch-postgres psql -U orchestrator -d orchestrator -c "select dag_run_id,status,report_key,uploaded_at,error from dag_report order by id desc limit 20;"
 ```
 
----
+## Verify report in S3
 
-## Design Principles
+```bash
+aws s3 ls "s3://$ORCH_S3_BUCKET/$ORCH_S3_PREFIX/reports/" --recursive | tail -n 20
+```
 
-- **Durable and auditable execution**
-  - Every run and task attempt is stored
-  - Failures are first-class and will gain retries/backoff
+## First successful run checklist
 
-- **Batch-first, SLA-aware execution**
-  - Designed for deadline-driven batch workloads
-  - Supports backfills and reprocessing by date
+- `dag_run.status = success`
+- all rows in `task_run` for that `dag_run_id` are `success`
+- `dag_report.status = success`
+- `dag_report.report_key` exists in S3 under `reports/`
 
-- **Clear separation of concerns**
-  - API creates runs and persists intent
-  - Worker executes tasks and updates state
+## Expected S3 layout
 
----
+- Data/input prefix: `s3://$ORCH_S3_BUCKET/$ORCH_S3_PREFIX/...`
+- Reports prefix: `s3://$ORCH_S3_BUCKET/$ORCH_S3_PREFIX/reports/dag-report-*.pdf`
+
+## Clean restart
+
+```bash
+pkill -f 'WorkflowOrchestratorApplication' || true
+docker compose down -v
+docker compose up -d
+./mvnw spring-boot:run
+# In another terminal:
+SPRING_PROFILES_ACTIVE=worker ./mvnw spring-boot:run
+```
 
 ## License
 
-**UNLICENSED**
-
-This project is not currently licensed for redistribution or commercial use.
+UNLICENSED
